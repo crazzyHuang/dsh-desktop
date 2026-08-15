@@ -19,7 +19,8 @@
     "test:integration": "npm run build && node --test --experimental-test-isolation=none \"test/integration/*.mjs\"",
     "dist": "npm run build && electron-builder",
     "dist:cn": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dist-cn.ps1",
-    "dist:dir": "npm run build && electron-builder --dir"
+    "dist:dir": "npm run build && electron-builder --dir",
+    "publish:release": "node scripts/publish-release.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh": "^0.1.0-rc.6"
