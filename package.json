@@ -1,0 +1,34 @@
+{
+  "name": "dsh-desktop",
+  "productName": "DeepSeek Harness Desktop",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness 桌面壳：以 Electron 托管/接管 dsh web 的客户端封装（薄壳，不改动 DSH 本体）",
+  "main": "dist/main/index.js",
+  "type": "commonjs",
+  "license": "MIT",
+  "author": "dsh-desktop",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "icons": "node scripts/gen-icons.mjs",
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json -w --preserveWatchOutput",
+    "start": "npm run build && electron .",
+    "test": "npm run build && node --test --experimental-test-isolation=none \"test/unit/*.mjs\"",
+    "test:integration": "npm run build && node --test --experimental-test-isolation=none \"test/integration/*.mjs\"",
+    "dist": "npm run build && electron-builder",
+    "dist:cn": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dist-cn.ps1",
+    "dist:dir": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "electron": "^37.10.3",
+    "electron-builder": "^26.15.3",
+    "sharp": "^0.35.3",
+    "typescript": "^7.0.2"
+  }
+}

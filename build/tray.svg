@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- 白色鱼形托盘图标（透明背景，适配深色任务栏） -->
+  <path d="M5 16 C5 10.5 10.5 7.5 16 7.5 C21.5 7.5 27 10.5 27 16 C27 21.5 21.5 24.5 16 24.5 C10.5 24.5 5 21.5 5 16 Z" fill="#FFFFFF"/>
+  <path d="M25 16 L31 11.5 L31 20.5 Z" fill="#FFFFFF"/>
+  <circle cx="9.5" cy="14.2" r="1.6" fill="#101320"/>
+</svg>

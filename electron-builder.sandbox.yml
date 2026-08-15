@@ -1,0 +1,30 @@
+# 沙箱专用打包配置：跳过需要 GitHub 下载的 winCodeSign（exe 图标/版本元数据编辑），
+# 仅用于受限环境验证打包管线；正常环境请使用 electron-builder.yml（npm run dist）。
+appId: com.dsh.desktop
+productName: DeepSeek Harness Desktop
+directories:
+  buildResources: build
+  output: release
+# 完全离线打包：electron 直接用本地已解包的 dist，跳过 builder 自身的 electron 下载
+electronDist: node_modules/electron/dist
+files:
+  - dist/**/*
+  - renderer/**/*
+  - build/icons/**/*
+  - package.json
+  - "!**/*.map"
+asarUnpack:
+  - node_modules/@deepseek-ai/dsh/**
+  - node_modules/node-addon*/**/*
+  - node_modules/koffi/**
+  - node_modules/@koromix/**
+  - node_modules/node-pty/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
+npmRebuild: false
+win:
+  icon: build/icon.png
+  target:
+    - dir
+  signAndEditExecutable: false
+publish: null

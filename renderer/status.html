@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>DeepSeek Harness Desktop</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+      background: radial-gradient(1200px 700px at 50% -10%, #172554 0%, #101320 55%, #0b0e17 100%);
+      color: #e5e9f5;
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .logo { width: 112px; height: 112px; filter: drop-shadow(0 8px 32px rgba(77, 107, 254, 0.45)); }
+    .spinner {
+      width: 34px; height: 34px;
+      border: 3px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #4D6BFE;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .title { font-size: 20px; font-weight: 600; letter-spacing: 0.02em; }
+    .hint { font-size: 13px; color: #8b93ad; max-width: 460px; text-align: center; line-height: 1.7; }
+  </style>
+</head>
+<body>
+  <img class="logo" src="../build/icons/icon-256.png" alt="" />
+  <div id="spinner" class="spinner"></div>
+  <div id="title" class="title">正在启动 DeepSeek Harness…</div>
+  <div id="hint" class="hint">首次启动需要初始化 profile，可能需要几十秒。</div>
+  <script>
+    const content = {
+      starting: {
+        title: '正在启动 DeepSeek Harness…',
+        hint: '首次启动需要初始化 profile，可能需要几十秒。',
+      },
+      reconnecting: {
+        title: '与 dsh web 的连接已断开',
+        hint: '正在尝试重新连接，请稍候…',
+      },
+      error: {
+        title: 'dsh web 启动失败',
+        hint: '子进程反复崩溃或无法绑定端口。请通过托盘菜单「重新连接 dsh web」重试，或在「打开数据目录」中查看 logs/dsh.log。',
+      },
+    };
+
+    function render(state) {
+      const item = content[state] || content.starting;
+      document.getElementById('title').textContent = item.title;
+      document.getElementById('hint').textContent = item.hint;
+      document.getElementById('spinner').style.display = state === 'error' ? 'none' : 'block';
+    }
+
+    const param = new URLSearchParams(location.search).get('state') || 'starting';
+    render(param);
+
+    // 订阅主进程状态广播，实时更新提示文案
+    if (window.dshDesktop && typeof window.dshDesktop.onStateChanged === 'function') {
+      window.dshDesktop.onStateChanged((info) => {
+        if (!info || typeof info !== 'object') return;
+        const map = { starting: 'starting', reconnecting: 'reconnecting', failed: 'error', idle: 'starting' };
+        const state = map[info.state];
+        if (state) render(state);
+      });
+    }
+  </script>
+</body>
+</html>
