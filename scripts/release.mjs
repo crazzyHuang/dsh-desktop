@@ -128,8 +128,11 @@ if (!dryRun && !process.env.GH_TOKEN) {
   process.exit(1);
 }
 
-run('node', ['scripts/publish-release.mjs', `v${newVersion}`, ...assets], '发布 GitHub Release（含 latest.yml / blockmap）');
+// 先推送 main 与标签，再发布 Release：
+// 若让 GitHub API 在 tag 不存在时创建 Release，会自动生成指向旧提交的 tag，
+// 与本地注释 tag 冲突（"already exists"）。
 run('git', ['push', 'origin', 'main', '--tags'], '推送 main 与标签');
+run('node', ['scripts/publish-release.mjs', `v${newVersion}`, ...assets], '发布 GitHub Release（含 latest.yml / blockmap）');
 
 console.log(`\n🎉 发布完成: https://github.com/crazzyHuang/dsh-desktop/releases/tag/v${newVersion}`);
 console.log('安装版用户将收到在线更新（latest.yml 已上传）。');
