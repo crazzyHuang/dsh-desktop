@@ -44,6 +44,7 @@ mac:
   category: public.app-category.developer-tools
   target:
     - dmg
+    - zip
 
 linux:
   icon: build/icon.png
@@ -51,4 +52,7 @@ linux:
   target:
     - AppImage
 
-publish: null
+publish:
+  provider: github
+  owner: crazzyHuang
+  repo: dsh-desktop

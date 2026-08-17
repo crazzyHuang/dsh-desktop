@@ -20,6 +20,7 @@ import { getUserDataDir } from './paths';
 import { acquireSingleton, notifyPrimary } from './single-instance';
 import { TrayController } from './tray';
 import type { TrayOptions } from './tray';
+import { checkForUpdatesNow, initAutoUpdater, quitAndInstall } from './updater';
 import { MainWindow } from './window';
 import { IPC, AppInfo } from '../shared/ipc';
 import { DshStateInfo } from '../shared/types';
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
   const mainWindow = new MainWindow({ minimizeToTray: settings.minimizeToTray });
   const tray = new TrayController();
   let hasTray = false;
+  let updateVersion: string | null = null;
 
   // 单实例：回环 TCP 握手（替代 requestSingleInstanceLock，受限环境安全且可测试）
   const singleton = await acquireSingleton((payload) => {
@@ -242,6 +244,7 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------------
   const trayOpts: TrayOptions = {
     settings: () => store.get(),
+    updateReady: () => updateVersion,
     cb: {
       onToggleWindow: () => mainWindow.toggle(),
       onSettings: (patch) => {
@@ -252,6 +255,8 @@ async function main(): Promise<void> {
       },
       onQuit: quitApp,
       onReconnect: () => void manager.restart(),
+      onCheckUpdate: () => void checkForUpdatesNow({ notificationsEnabled: () => store.get().notifications }),
+      onQuitAndInstall: quitAndInstall,
     },
   };
 
@@ -272,8 +277,14 @@ async function main(): Promise<void> {
 
   await app.whenReady();
   diag('whenReady 完成');
+
   app.setAppUserModelId('com.dsh.desktop'); // Windows toast 通知需要
-  installAppMenu({ onQuit: quitApp, onReconnect: () => void manager.restart(), about: showAbout });
+  installAppMenu({
+    onQuit: quitApp,
+    onReconnect: () => void manager.restart(),
+    onCheckUpdate: () => void checkForUpdatesNow({ notificationsEnabled: () => store.get().notifications }),
+    about: showAbout,
+  });
   hasTray = tray.create(trayOpts);
   diag(`托盘创建: ${hasTray}`);
   applyAutoStart(store.get().autoStart);
@@ -281,6 +292,21 @@ async function main(): Promise<void> {
   mainWindow.showState('starting');
   diag('窗口状态页已加载');
   if (!hasTray) console.warn('[main] 托盘创建失败，窗口关闭后将退出应用');
+
+  // 在线更新（仅打包产物生效；启动 15s 后自动检查，受设置 autoUpdate 控制）
+  initAutoUpdater(
+    {
+      notificationsEnabled: () => store.get().notifications,
+      onUpdateReady: (info) => {
+        updateVersion = info?.version ?? null;
+        tray.rebuildMenu();
+      },
+      onProgress: (percent) => {
+        tray.updateTooltip(`DeepSeek Harness Desktop — 正在下载更新 ${Math.floor(percent)}%`);
+      },
+    },
+    store.get().autoUpdate,
+  );
 
   // 首启（Windows 深链冷启动）参数处理
   const firstDeepLink = findDeepLinkArg(process.argv);

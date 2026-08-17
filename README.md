@@ -35,6 +35,7 @@
 - 🛡️ **崩溃自愈**：子进程意外退出按指数退避（1s→30s）自动重启，120s 内崩溃超 5 次停止并通知；接管实例失联 45s 后原位自起
 - 🧵 **单实例**：自实现 TCP 回环握手协议，替代 `requestSingleInstanceLock`（受限环境下后者会原生崩溃），跨平台行为一致
 - 🔒 **安全默认**：`contextIsolation` + `sandbox` 渲染进程、IPC 调用来源白名单、外链一律转交系统浏览器
+- 🔄 **在线更新**：electron-updater + GitHub Releases（latest.yml 差分更新），托盘「检查更新」、下载完成后「重启并安装更新」
 - 📝 **日志文件**：dsh 子进程输出全量落盘（>5MB 自动轮转），主进程异常写入诊断日志
 
 **工程化**
@@ -100,6 +101,8 @@ npm start            # 编译 + 以 Electron 启动
 |---|---|
 | 显示 / 隐藏窗口 | 切换主窗口 |
 | 系统通知 / 关闭时最小化到托盘 / 开机自启 | 开关项，即时生效并持久化 |
+| 检查更新 / 自动检查更新 | 手动检查（无更新时通知「已是最新版本」）/ 开关启动时自动检查 |
+| 重启并安装更新 (v…) | 更新下载完成后出现，点击立即重启安装 |
 | 重新连接 dsh web | 重置重启预算并重新启动/接管 |
 | 打开数据目录 | 打开 `%APPDATA%\dsh-desktop`（含设置与日志） |
 
@@ -136,6 +139,7 @@ npm start            # 编译 + 以 Electron 启动
 | `autoStart` | `false` | 登录时自动启动 |
 | `minimizeToTray` | `true` | 关闭窗口时驻留托盘而非退出 |
 | `notifications` | `true` | 生命周期系统通知 |
+| `autoUpdate` | `true` | 启动后自动检查更新（electron-updater，GitHub Releases 源） |
 | `dshArgs` | `[]` | 追加给 `dsh web` 的参数，如 `["--trusted-host", "192.168.1.0/24"]` |
 | `cwd` | `null` | dsh 工作目录（workspace 根）；`null` = 启动目录 |
 | `dshBin` | `null` | 自定义 dsh 可执行文件；默认使用内置 `@deepseek-ai/dsh`（Electron 以 `ELECTRON_RUN_AS_NODE` 执行自身运行时，无需系统 Node） |
@@ -189,6 +193,43 @@ npm run test:integration # 集成测试：真实启动 dsh web（随机端口 + 
 | `npm run dist:dir` | 免安装目录版（`release/win-unpacked`，快速验证） |
 | `npm run publish:release -- <tag> <资产...>` | 调用幂等发布脚本创建 Release 并上传资产 |
 
+### 🔄 发布新版本 / 跟随上游升级
+
+上游 DeepSeek Harness 以 npm 发布（`@deepseek-ai/dsh`，各 `dsh-*` 包版本号锁步）。
+跟进发版用内置的半自动脚本，一条命令完成「升级依赖 → 测试 → 打版本 → 打包 → 发布 → 推送」：
+
+```powershell
+# 上游发新版本时（--dsh latest 自动取 npm 上的最新版），并发布应用 0.2.0：
+$env:GH_TOKEN = '从 git credential fill 获取的 password'
+node scripts/release.mjs 0.2.0 --dsh latest --cn
+
+# 只发版、不动 dsh 依赖：
+node scripts/release.mjs 0.1.1 --cn
+
+# 预览将执行的步骤（不实际执行）：
+node scripts/release.mjs 0.2.0 --dsh latest --cn --dry-run
+```
+
+脚本步骤：查询上游最新版本 → `npm install @deepseek-ai/dsh@<目标>`（自动补 koffi 平台包）
+→ 单元 + 集成测试 → 写入版本号并提交/打标签 → 打包 → 上传
+**安装包 + latest.yml + blockmap**（在线更新所需）→ 推送 main 与标签。
+
+> 发布后，已安装的用户启动应用即可收到在线更新（见下节），无需手动重装。
+
+### ⚡ 在线更新（用户侧）
+
+安装版内置 electron-updater，更新源为 GitHub Releases：
+
+- **自动**：启动 15 秒后后台检查，发现新版本自动下载（托盘 tooltip 显示进度），下载完成通知，退出应用时自动安装；托盘「重启并安装更新 (v…)」可立即安装；
+- **手动**：托盘或帮助菜单「检查更新」，无更新时明确提示「已是最新版本」；
+- **开关**：托盘「自动检查更新」可关闭自动检查（设置项 `autoUpdate`）。
+
+注意事项：
+
+- 差分更新依赖 Release 中随安装包上传的 `latest.yml` 与 `.blockmap`（发布脚本已自动处理）；
+- 应用未做代码签名，Windows SmartScreen 可能提示；更新安装由 electron-updater 静默完成，不受影响；
+- 国内网络下载 GitHub 更新包可能较慢，失败会自动回退为「手动下载安装包覆盖安装」。
+
 ### 发布 Release
 
 使用内置的幂等发布脚本（通过 Git Credential Manager 凭据调用 GitHub API，流式上传大文件）：
@@ -219,6 +260,7 @@ npm run dist:cn
 
 - [x] 托管/接管双模式 + 健康监控 + 崩溃自愈
 - [x] 托盘、通知、自启、深链、拖放、单实例
+- [x] 在线更新（electron-updater + GitHub Releases）
 - [x] 单元 + 集成测试、三平台打包配置、国内镜像打包
 
 **规划中**
@@ -226,7 +268,6 @@ npm run dist:cn
 - [ ] 拖入文件夹 → 以该目录为 workspace 重启自有 dsh 实例
 - [ ] 多窗口 / 任务栏进度
 - [ ] Linux 开机自启（`~/.config/autostart/*.desktop`）
-- [ ] 自动更新（electron-updater）
 - [ ] 进程内嵌入（路线 B：主进程直接 boot DSH 组合包，单进程形态）
 
 **已知限制**

@@ -4,6 +4,7 @@ import type { MenuItemConstructorOptions } from 'electron';
 export interface MenuCallbacks {
   onQuit(): void;
   onReconnect(): void;
+  onCheckUpdate(): void;
   about(): void;
 }
 
@@ -34,7 +35,10 @@ export function installAppMenu(cb: MenuCallbacks): void {
     },
     {
       label: '帮助',
-      submenu: [{ label: '关于', click: cb.about }],
+      submenu: [
+        { label: '检查更新', click: cb.onCheckUpdate },
+        { label: '关于', click: cb.about },
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

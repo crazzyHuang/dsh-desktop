@@ -3,19 +3,28 @@
  *
  * 用法（Windows PowerShell，凭据由 Git Credential Manager 提供）：
  *   $env:GH_TOKEN = (git credential fill 得到的 password)
- *   node scripts/publish-release.mjs v0.1.0 "release\DeepSeek Harness Desktop-Setup-0.1.0.exe"
+ *   node scripts/publish-release.mjs v0.1.0 "release\DeepSeek Harness Desktop-Setup-0.1.0.exe" release\latest.yml ...
  *
- * 或使用 gh CLI：
- *   gh release create v0.1.0 "release\...exe" --title "..." --notes-file ...
+ * 选项：
+ *   --notes-file <path>  使用自定义发布说明（默认内置模板）
  *
  * 幂等性：tag 对应的 Release 已存在时复用并补传缺失资产；同名资产已存在则跳过。
  * 大文件用 node:https 流式上传（30 分钟超时），不受 fetch/undici 默认头超时限制。
+ *
+ * 在线更新（electron-updater）需要同时上传：安装包、latest.yml、安装包 .blockmap。
  */
-import { existsSync, statSync, createReadStream } from 'node:fs';
+import { existsSync, statSync, createReadStream, readFileSync } from 'node:fs';
 import { request } from 'node:https';
 import { execFileSync } from 'node:child_process';
 
-const [tag, ...assetArgs] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const notesFileIdx = argv.indexOf('--notes-file');
+let notesFile = null;
+if (notesFileIdx >= 0) {
+  notesFile = argv[notesFileIdx + 1];
+  argv.splice(notesFileIdx, 2);
+}
+const [tag, ...assetArgs] = argv;
 if (!tag || assetArgs.length === 0) {
   console.error('用法: node scripts/publish-release.mjs <tag> <资产文件...>');
   process.exit(2);
@@ -61,19 +70,10 @@ const apiHeaders = {
   'X-GitHub-Api-Version': '2022-11-28',
 };
 
-const notes = [
-  '## 功能',
-  '',
-  '- 托管/接管 `dsh web` 子进程：优先接管已运行实例，否则自起；健康监控 + 崩溃自愈（指数退避重启）',
-  '- 自实现 TCP 回环单实例协议（替代 `requestSingleInstanceLock`，受限环境安全）',
-  '- 托盘常驻、系统通知、开机自启、关闭最小化到托盘',
-  '- 文件拖放、深链协议 `dsh-desktop://`、以文件夹参数启动指定 workspace 根',
-  '- 崩溃自愈：子进程意外退出自动重启，接管实例失联后原位自起',
-  '- 单元测试 12 项 + 真实 dsh 集成测试 2 项（固定/随机端口）',
-  '',
+const DEFAULT_NOTES = [
   '## 安装',
   '',
-  '运行 `DeepSeek Harness Desktop-Setup-0.1.0.exe` 按向导安装（内置 dsh 依赖，无需另行安装 Node.js）。',
+  '运行安装包按向导安装（内置 dsh 依赖，无需另行安装 Node.js）。',
   '',
   '## 使用说明',
   '',
@@ -82,6 +82,8 @@ const notes = [
   '',
   '更多信息见仓库 README。',
 ].join('\n');
+
+const notes = notesFile && existsSync(notesFile) ? readFileSync(notesFile, 'utf8') : DEFAULT_NOTES;
 
 /** 通过 GitHub API 的 JSON 调用（小请求用 fetch 即可） */
 async function apiJson(url, init) {

@@ -22,6 +22,7 @@ export function mergeSettings(raw: unknown): DesktopSettings {
   if (typeof r.autoStart === 'boolean') out.autoStart = r.autoStart;
   if (typeof r.minimizeToTray === 'boolean') out.minimizeToTray = r.minimizeToTray;
   if (typeof r.notifications === 'boolean') out.notifications = r.notifications;
+  if (typeof r.autoUpdate === 'boolean') out.autoUpdate = r.autoUpdate;
   if (Array.isArray(r.dshArgs)) {
     out.dshArgs = r.dshArgs.filter((v): v is string => typeof v === 'string');
   }

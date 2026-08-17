@@ -8,10 +8,14 @@ export interface TrayCallbacks {
   onSettings(patch: Partial<DesktopSettings>): void;
   onQuit(): void;
   onReconnect(): void;
+  onCheckUpdate(): void;
+  onQuitAndInstall(): void;
 }
 
 export interface TrayOptions {
   settings: () => DesktopSettings;
+  /** 已就绪的更新版本号（null = 无待装更新） */
+  updateReady: () => string | null;
   cb: TrayCallbacks;
 }
 
@@ -38,8 +42,9 @@ export class TrayController {
 
   rebuildMenu(): void {
     if (!this.tray || !this.lastOpts) return;
-    const { settings, cb } = this.lastOpts;
+    const { settings, cb, updateReady } = this.lastOpts;
     const s = settings();
+    const readyVersion = updateReady();
     this.tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: '显示 / 隐藏窗口', click: cb.onToggleWindow },
@@ -63,6 +68,16 @@ export class TrayController {
           click: (item) => cb.onSettings({ autoStart: item.checked }),
         },
         { type: 'separator' },
+        { label: '检查更新', click: cb.onCheckUpdate },
+        {
+          label: '自动检查更新',
+          type: 'checkbox',
+          checked: s.autoUpdate,
+          click: (item) => cb.onSettings({ autoUpdate: item.checked }),
+        },
+        ...(readyVersion
+          ? [{ label: `重启并安装更新 (v${readyVersion})`, click: cb.onQuitAndInstall }]
+          : []),
         { label: '重新连接 dsh web', click: cb.onReconnect },
         { label: '打开数据目录', click: () => void shell.openPath(getUserDataDir()) },
         { type: 'separator' },

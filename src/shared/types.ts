@@ -15,6 +15,8 @@ export interface DesktopSettings {
   minimizeToTray: boolean;
   /** 允许系统通知（生命周期事件） */
   notifications: boolean;
+  /** 启动后自动检查更新（electron-updater，GitHub Releases 源） */
+  autoUpdate: boolean;
   /** 追加给 `dsh web` 的额外参数 */
   dshArgs: string[];
   /** dsh 工作目录（workspace 根）；null = 使用启动目录 */
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: DesktopSettings = {
   autoStart: false,
   minimizeToTray: true,
   notifications: true,
+  autoUpdate: true,
   dshArgs: [],
   cwd: null,
   dshBin: null,

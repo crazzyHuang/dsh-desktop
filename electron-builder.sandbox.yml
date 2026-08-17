@@ -27,4 +27,7 @@ win:
   target:
     - dir
   signAndEditExecutable: false
-publish: null
+publish:
+  provider: github
+  owner: crazzyHuang
+  repo: dsh-desktop
