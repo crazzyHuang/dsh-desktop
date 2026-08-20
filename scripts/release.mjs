@@ -19,7 +19,8 @@
  *   - git 已配置推送凭据
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -38,18 +39,33 @@ const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')
 const productName = pkg.productName ?? pkg.name;
 const setupExe = `${productName}-Setup-${newVersion}.exe`;
 
-/** 执行命令（Windows 上 npm 需要 shell 解析 .cmd） */
-function run(cmd, args, label) {
-  console.log(`\n▶ ${label}: ${cmd} ${args.join(' ')}`);
-  if (dryRun) return;
-  const r = spawnSync(cmd, args, {
-    stdio: 'inherit',
-    shell: process.platform === 'win32' && cmd === 'npm',
-    env: process.env,
-  });
-  if (r.status !== 0) {
-    console.error(`✗ 步骤失败（exit ${r.status ?? 'signal'}）: ${label}`);
-    process.exit(r.status ?? 1);
+/** 同步休眠（CLI 脚本用 Atomics.wait 阻塞，避免异步改造所有调用点） */
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    /* 极端环境忽略 */
+  }
+}
+
+/** 执行命令（Windows 上 npm 需要 shell 解析 .cmd）；失败时自动重试（网络抖动场景） */
+function run(cmd, args, label, attempts = 1) {
+  for (let i = 1; i <= attempts; i++) {
+    console.log(`\n▶ ${label}: ${cmd} ${args.join(' ')}${attempts > 1 ? `（第 ${i}/${attempts} 次尝试）` : ''}`);
+    if (dryRun) return;
+    const r = spawnSync(cmd, args, {
+      stdio: 'inherit',
+      shell: process.platform === 'win32' && cmd === 'npm',
+      env: process.env,
+    });
+    if (r.status === 0) return;
+    if (i < attempts) {
+      console.warn(`⚠ 步骤失败（exit ${r.status ?? 'signal'}），${10 * i}s 后重试`);
+      sleepSync(10 * i * 1000);
+    } else {
+      console.error(`✗ 步骤失败（exit ${r.status ?? 'signal'}）: ${label}`);
+      process.exit(r.status ?? 1);
+    }
   }
 }
 
@@ -89,8 +105,16 @@ if (dshTarget !== currentDsh) {
     console.log(`\n🔧 将 @deepseek-ai/dsh 更新到 ${dshTarget}`);
   }
   run('npm', ['install', `@deepseek-ai/dsh@${dshTarget}`, '--no-audit', '--no-fund'], '更新 dsh 依赖');
-  // 提醒同步安装 koffi 平台包（若 npm 未自动装齐）
-  run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-save', '@koromix/koffi-win32-x64@3.1.5'], '补 koffi 平台包（幂等）');
+  // 补 koffi 平台包（版本与树上 koffi 保持一致；npm 可能未自动装齐）
+  try {
+    const koffiPkg = JSON.parse(readFileSync(join(process.cwd(), 'node_modules', 'koffi', 'package.json'), 'utf8'));
+    const arch = process.arch === 'x64' || process.arch === 'arm64' ? process.arch : 'x64';
+    const platformPkg =
+      process.platform === 'win32' ? `win32-${arch}` : process.platform === 'darwin' ? `darwin-${arch}` : `linux-${arch}`;
+    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-save', `@koromix/koffi-${platformPkg}@${koffiPkg.version}`], '补 koffi 平台包（幂等）');
+  } catch (err) {
+    console.warn(`⚠ koffi 平台包补齐跳过: ${err instanceof Error ? err.message : String(err)}`);
+  }
 } else {
   console.log('\nℹ 保持当前 dsh 版本不变');
 }
@@ -130,9 +154,41 @@ if (!dryRun && !process.env.GH_TOKEN) {
 
 // 先推送 main 与标签，再发布 Release：
 // 若让 GitHub API 在 tag 不存在时创建 Release，会自动生成指向旧提交的 tag，
-// 与本地注释 tag 冲突（"already exists"）。
-run('git', ['push', 'origin', 'main', '--tags'], '推送 main 与标签');
-run('node', ['scripts/publish-release.mjs', `v${newVersion}`, ...assets], '发布 GitHub Release（含 latest.yml / blockmap）');
+// 与本地注释 tag 冲突（"already exists"）。网络抖动自动重试 4 次。
+run('git', ['push', 'origin', 'main', '--tags'], '推送 main 与标签', 4);
+
+// 自动生成发布说明（含安装包 SHA256 校验值）
+const exePath = assets[0];
+const exeSha = createHash('sha256').update(readFileSync(exePath)).digest('hex').toUpperCase();
+const notesPath = join(process.cwd(), `.tmp-notes-${newVersion}.md`);
+const notes = [
+  `## 更新内容`,
+  ``,
+  dshTarget !== currentDsh
+    ? `- 跟随上游 DeepSeek Harness：\`@deepseek-ai/dsh\` ${currentDsh} → ${dshTarget}`
+    : `- 详见版本提交记录`,
+  `- 已安装 0.2.0 及以上版本的用户将自动收到本更新（启动后后台下载，退出时安装）`,
+  ``,
+  `## 安装`,
+  ``,
+  `运行 \`${setupExe}\` 按向导安装（内置 dsh 依赖，无需安装 Node.js）。0.1.0 及更早版本请手动安装本版本后即可自动更新。`,
+  ``,
+  `## 校验`,
+  ``,
+  `SHA256（${setupExe}）:`,
+  ``,
+  `\`\`\``,
+  exeSha,
+  `\`\`\``,
+].join('\n');
+writeFileSync(notesPath, notes, 'utf8');
+
+run('node', ['scripts/publish-release.mjs', `v${newVersion}`, '--notes-file', notesPath, ...assets], '发布 GitHub Release（含 latest.yml / blockmap）');
+try {
+  unlinkSync(notesPath);
+} catch {
+  /* 忽略 */
+}
 
 console.log(`\n🎉 发布完成: https://github.com/crazzyHuang/dsh-desktop/releases/tag/v${newVersion}`);
 console.log('安装版用户将收到在线更新（latest.yml 已上传）。');
