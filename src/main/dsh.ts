@@ -98,7 +98,7 @@ export interface DshManagerOptions {
   maxRestarts?: number;
   /** 重启计数窗口（默认 120s） */
   restartWindowMs?: number;
-  /** 接管实例连续失联多久后自起新实例（默认 45s） */
+  /** 接管实例连续失联多久后自起新实例（默认 15s） */
   attachRetryMs?: number;
   logger?: (msg: string) => void;
 }
@@ -153,7 +153,7 @@ export class DshManager extends EventEmitter {
       healthIntervalMs: opts.healthIntervalMs ?? 8_000,
       maxRestarts: opts.maxRestarts ?? 5,
       restartWindowMs: opts.restartWindowMs ?? 120_000,
-      attachRetryMs: opts.attachRetryMs ?? 45_000,
+      attachRetryMs: opts.attachRetryMs ?? 15_000,
       logger: opts.logger ?? (() => {}),
     };
   }
@@ -402,7 +402,12 @@ export class DshManager extends EventEmitter {
     this.healthTimer = setInterval(async () => {
       const url = this.url;
       const st = this.stateNow();
-      if (this.stopping || !url || (st !== 'ready' && st !== 'attached')) return;
+      // 就绪 / 接管 / 重连三种状态下持续探测：
+      // - ready/attached：正常健康监控；
+      // - reconnecting：接管实例失联后的自起判定、外部实例恢复检测都在此驱动，
+      //   若此处提前返回，接管自起将永远无法执行（历史 bug）。
+      if (this.stopping || !url || (st !== 'ready' && st !== 'attached' && st !== 'reconnecting')) return;
+
       const ok = await probeDshWeb(url + '/', 4000);
       if (ok) {
         this.healthFailures = 0;
@@ -413,6 +418,7 @@ export class DshManager extends EventEmitter {
         }
         return;
       }
+
       this.healthFailures += 1;
       if (this.healthFailures === 1) {
         this.log('健康探测失败（首次）');
@@ -422,11 +428,18 @@ export class DshManager extends EventEmitter {
           this.log('dsh web 连续失联，进入重连状态');
           this.emitState('reconnecting', 'dsh web 无响应');
         }
-        // 接管实例失联：等待 attachRetryMs 后在原端口自起
+        // 接管实例失联：attachRetryMs 后原位自起内置实例（不依赖外部服务）
         if (!this.owned) {
-          if (this.attachDownSince === 0) this.attachDownSince = Date.now();
-          else if (Date.now() - this.attachDownSince >= this.opts.attachRetryMs && !this.child) {
-            this.log('接管实例长时间失联，尝试在原端口自起新实例');
+          const action = shouldTakeoverAttach(
+            this.healthFailures,
+            this.attachDownSince,
+            Date.now(),
+            this.opts.attachRetryMs,
+            this.child !== null,
+          );
+          if (action === 'init') this.attachDownSince = Date.now();
+          else if (action === 'takeover') {
+            this.log('接管实例长时间失联，在原端口自起内置 dsh web 实例');
             this.attachDownSince = 0;
             void this.spawnOwn();
           }
@@ -520,4 +533,24 @@ export class DshManager extends EventEmitter {
     }
     this.stopResolvers.splice(0).forEach((resolve) => resolve());
   }
+}
+
+/**
+ * 接管实例失联后的自起判定（纯函数，可单测）：
+ * - `init`：失联计时尚未开始，调用方应记录 attachDownSince；
+ * - `takeover`：失联超过 attachRetryMs，调用方应原位自起内置实例；
+ * - `wait`：继续等待。
+ */
+export type AttachAction = 'init' | 'takeover' | 'wait';
+
+export function shouldTakeoverAttach(
+  healthFailures: number,
+  attachDownSince: number,
+  now: number,
+  attachRetryMs: number,
+  hasOwnChild: boolean,
+): AttachAction {
+  if (healthFailures < 3 || hasOwnChild) return 'wait';
+  if (attachDownSince === 0) return 'init';
+  return now - attachDownSince >= attachRetryMs ? 'takeover' : 'wait';
 }

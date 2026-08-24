@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { stripAnsi, parseWebUrlLine, backoffDelay } = require('../../dist/main/dsh.js');
+const { stripAnsi, parseWebUrlLine, backoffDelay, shouldTakeoverAttach } = require('../../dist/main/dsh.js');
 const { mergeSettings } = require('../../dist/main/settings.js');
 
 test('stripAnsi 移除终端转义', () => {
@@ -35,6 +35,23 @@ test('backoffDelay 指数退避并封顶 30s', () => {
   assert.equal(backoffDelay(5), 16000);
   assert.equal(backoffDelay(6), 30000);
   assert.equal(backoffDelay(20), 30000);
+});
+
+test('shouldTakeoverAttach 接管实例失联自起判定', () => {
+  const now = 1_000_000;
+  // 失败次数不足 → 等待
+  assert.equal(shouldTakeoverAttach(2, 0, now, 15_000, false), 'wait');
+  // 已有自有子进程（重启流程由 onChildExit 驱动）→ 等待
+  assert.equal(shouldTakeoverAttach(5, 0, now, 15_000, true), 'wait');
+  // 首次达到失败阈值 → 初始化计时
+  assert.equal(shouldTakeoverAttach(3, 0, now, 15_000, false), 'init');
+  // 计时中 → 等待
+  assert.equal(shouldTakeoverAttach(4, now - 10_000, now, 15_000, false), 'wait');
+  // 超过重试窗口 → 接管自起
+  assert.equal(shouldTakeoverAttach(5, now - 15_000, now, 15_000, false), 'takeover');
+  assert.equal(shouldTakeoverAttach(3, now - 30_000, now, 15_000, false), 'takeover');
+  // 恰好等于窗口边界 → 接管
+  assert.equal(shouldTakeoverAttach(3, now - 15_000, now, 15_000, false), 'takeover');
 });
 
 test('mergeSettings 缺省值', () => {
